@@ -83,6 +83,8 @@ db.connect(function (err) {
             error = err;
         }
 
+        res.header("Access-Control-Allow-Origin", "*");
+        
         res.send(recordset);
     });
 });
