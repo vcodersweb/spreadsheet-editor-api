@@ -42,6 +42,15 @@ var corsOptionsDelegate = function (req, callback) {
     callback(null, corsOptions) // callback expects two parameters: error and options 
 }
 
+function getSQLType(dataType, length) {
+    if (dataType === 'varchar')
+        return sql.VarChar(length)
+    else if (dataType === 'int')
+        return sql.Int
+    else if (dataType === 'decimal')
+        return sql.Decimal(length)
+}
+
 var db = new sql.ConnectionPool(databaseConfig);
 
 router.route('/getMasterApplication').get((req, res) => {
@@ -119,7 +128,7 @@ router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) 
 
         var request = new sql.Request(db);
 
-        var query = 'select ' + req.params.textColumn + ' as text,' + req.params.keyColumn + ' as value from ' + req.params.tableName;
+        var query = 'select [' + req.params.textColumn + '] as text, [' + req.params.keyColumn + '] as value from [' + req.params.tableName + ']';
 
         request.query(query, function (err, recordset) {
             db.close();
@@ -132,6 +141,204 @@ router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) 
 
             res.header("Access-Control-Allow-Origin", "*");
 
+            res.send(recordset);
+        });
+    });
+});
+
+router.route('/getColumnData').post(cors(corsOptionsDelegate), (req, res, next) => {
+    var error, msg = '';
+
+    var schema = req.body;
+
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+
+            db.close();
+
+            return next(err);
+        }
+
+        var request = new sql.Request(db);
+        
+        request.multiple = true
+        
+        var query = '';
+        
+        schema.forEach(function (item) {
+            if (item.formElement == 'Drop Down') {
+                var tempquery = "select " + item.lookupTableText + " as text," + item.lookupTableKey + " as value,'" + item.lookupTable + "' as tableName from " + item.lookupTable
+                
+                query = query == '' ? tempquery : query + '; ' + tempquery;
+            }
+        });
+
+        request.query(query, function (err, result) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+                
+                return next(err);
+            }
+            
+            var elements = [];
+            
+            result.recordsets.forEach(function (item) {
+                item.forEach(function (element) {
+                    elements.push(element);
+                });
+            });
+
+            schema.forEach(function (item) {
+                if (item.formElement == 'Drop Down') {
+                    item.lookupTableData = elements.filter((a) => a.tableName == item.lookupTable);
+                }
+            });
+
+            res.header("Access-Control-Allow-Origin", "*");
+
+            res.json(schema);
+        });
+    });
+});
+
+router.route('/getColumnDataByTable/:tableName').get((req, res, next) => {
+    var error, msg = '';
+
+    var schema = req.body;
+    
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+            
+            db.close();
+            
+            return next(err);
+        }
+
+        var request = new sql.Request(db);
+
+        var query = "SELECT ColumnsMetadata from Application WHERE ApplicationName ='" + req.params.tableName + "'";
+        
+        request.query(query, function (err, data) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+                
+                return next(err);
+            }
+
+            var columns = JSON.parse(data.recordset[0].ColumnsMetadata);
+
+            var query = '';
+            
+            columns.forEach(function (item) {
+                if (item.formElement === 'Drop Down') {
+                    var tempquery = "SELECT [" + item.lookupTableText + "] as text, [" + item.lookupTableKey + "] as value,'" + item.lookupTable + "' as tableName from [" + item.lookupTable +"]";
+                    
+                    query = query === '' ? tempquery : query + '; ' + tempquery;
+                }
+            });
+
+            db.connect(function (err) {
+                var multirequest = new sql.Request(db);
+                
+                multirequest.multiple = true
+
+                multirequest.query(query, function (err, result) {
+                    db.close();
+
+                    if (err) {
+                        console.log(err);
+                        
+                        return next(err);
+                    }
+                    
+                    var elements = [];
+                    
+                    result.recordsets.forEach(function (item) {
+                        item.forEach(function (element) {
+                            elements.push(element);
+                        });
+                    });
+
+                    columns.forEach(function (item) {
+                        if (item.formElement == 'Drop Down') {
+                            item.lookupTableData = elements.filter((a) => a.tableName == item.lookupTable);
+                        }
+                    });
+
+                    res.header("Access-Control-Allow-Origin", "*");
+
+                    res.json(columns);
+                });
+            });
+        });
+    });
+});
+
+router.route('/getTableData/:tableName').get((req, res, next) => {
+    var error, msg = '';
+    
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+            
+            db.close();
+            
+            return next(err);
+        }
+
+        var request = new sql.Request(db);
+
+        var query = 'SELECCT * FROM ' + req.params.tableName;
+
+        request.query(query, function (err, data) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+                
+                return next(err);
+            }
+
+            res.header("Access-Control-Allow-Origin", "*");
+            
+            res.send(data.recordset);
+        });
+    });
+});
+
+router.route('/getTableDataByColumn/:tableName/:columnName/:columnvalue').get((req, res, next) => {
+    var error, msg = '';
+
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+
+            db.close();
+            
+            return next(err);
+        }
+
+        var request = new sql.Request(db);
+
+        var query = 'SELECT * FROM ' + req.params.tableName + ' Where ' + req.params.columnName + '=' + req.params.columnvalue;
+        
+        request.query(query, function (err, recordset) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+                
+                return next(err);
+            }
+
+            res.header("Access-Control-Allow-Origin", "*");
+            
             res.send(recordset);
         });
     });
@@ -182,72 +389,6 @@ router.route('/getTableData').post(cors(corsOptionsDelegate), (req, res, next) =
         });
     });
 });
-
-router.route('/ViewApplication/:applicationId').post(cors(corsOptionsDelegate), (req, res, next) => {
-    var error, msg = '';
-
-    db.connect(function (err) {
-        if (err) {
-            console.log('error', err);
-
-            sql.close();
-
-            return next(err);
-        }
-
-        var request = new sql.Request(db);
-
-        request.multiple = true
-
-        var query = '';
-
-        query = "SELECT * FROM "
-        // schema.forEach(function (item) {
-        //     if (item.formElement == 'Drop Down') {
-        //         var tempquery = "select [" + item.lookupTableText + "] as text, [" + item.lookupTableKey + "] as value,'" + item.lookupTable + "' as tableName from [" + item.lookupTable + "]"
-
-        //         query = query == '' ? tempquery : query + '; ' + tempquery;
-        //     }
-        // });
-
-        request.query(query, function (err, result) {
-            db.close();
-
-            if (err) {
-                console.log(err);
-
-                return next(err);
-            }
-
-            var elements = [];
-
-            result.recordsets.forEach(function (item) {
-                item.forEach(function (element) {                    
-                    elements.push(element);
-                });
-            });
-
-            schema.forEach(function (item) {
-                if (item.formElement == 'Drop Down') {
-                    item.lookupTableData= elements.filter((a)=>a.tableName==item.lookupTable);
-                }    
-            });
-
-            res.header("Access-Control-Allow-Origin", "*");
-
-            res.json(schema);
-        });
-    });
-});
-
-function getSQLType(dataType, length) {
-    if (dataType === 'varchar')
-        return sql.VarChar(length)
-    else if (dataType === 'int')
-        return sql.Int
-    else if (dataType === 'decimal')
-        return sql.Decimal(length)
-}
 
 router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res, next) => {
     var error, msg = '';
