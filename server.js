@@ -1,9 +1,24 @@
 var express = require('express'),
-bodyParser = require("body-parser"),
-sql = require("mssql"),
-cors = require('cors'),
-app = express(),
-router = express.Router();
+    bodyParser = require("body-parser"),
+    sql = require("mssql"),
+    cors = require('cors'),
+    fs = require('fs'),
+    morgan = require('morgan'),
+    path = require('path'),
+    rfs = require('rotating-file-stream'),
+    app = express(),
+    router = express.Router();
+
+var logDirectory = path.join(__dirname, 'log');
+
+// ensure log directory exists
+fs.existsSync(logDirectory) || fs.mkdirSync(logDirectory);
+
+// create a rotating write stream
+var accessLogStream = rfs('access.log', {
+    interval: '1d', // rotate daily
+    path: logDirectory
+});
 
 var databaseConfig = {
     user: "nodejs",
@@ -35,8 +50,10 @@ router.route('/getMasterApplication').get((req, res) => {
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
+
             db.close();
-            res.json({ "error": err });
+            
+            return next(err);
         }
 
         var request = new sql.Request(db)
@@ -48,7 +65,37 @@ router.route('/getMasterApplication').get((req, res) => {
             if (err) {
                 console.log(err);
                 
-                error = err;
+                return next(err);
+            }
+
+            res.header("Access-Control-Allow-Origin", "*");
+            
+            res.send(recordset);
+        });
+    });
+});
+
+router.route('/getApplications').get((req, res) => {
+    var error, msg = '';
+
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+
+            db.close();
+            
+            return next(err);
+        }
+
+        var request = new sql.Request(db);
+    
+        request.query('SELECT * FROM Application', function (err, recordset) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+                
+                return next(err);
             }
 
             res.header("Access-Control-Allow-Origin", "*");
@@ -67,7 +114,7 @@ router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) 
 
             db.close();
 
-            res.json({ "error": err });
+            return next(err);
         }
 
         var request = new sql.Request(db);
@@ -79,8 +126,10 @@ router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) 
 
             if (err) {
                 console.log(err);
-                error = err;
+                
+                return next(err);
             }
+
             res.header("Access-Control-Allow-Origin", "*");
 
             res.send(recordset);
@@ -88,7 +137,7 @@ router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) 
     });
 });
 
-router.route('/getTableData').post(cors(corsOptionsDelegate), (req, res) => {
+router.route('/getTableData').post(cors(corsOptionsDelegate), (req, res, next) => {
     var error, msg = '';
 
     var schema = req.body;
@@ -98,7 +147,10 @@ router.route('/getTableData').post(cors(corsOptionsDelegate), (req, res) => {
             console.log('error', err);
 
             sql.close();
+
+            return next(err);
         }
+
         var request = new sql.Request(db);
 
         request.multiple = true
@@ -119,7 +171,52 @@ router.route('/getTableData').post(cors(corsOptionsDelegate), (req, res) => {
             if (err) {
                 console.log(err);
 
-                error = err;
+                return next(err);
+            }
+
+            var elements = [];
+
+            res.header("Access-Control-Allow-Origin", "*");
+
+            res.json(result);
+        });
+    });
+});
+
+router.route('/ViewApplication/:applicationId').post(cors(corsOptionsDelegate), (req, res, next) => {
+    var error, msg = '';
+
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+
+            sql.close();
+
+            return next(err);
+        }
+
+        var request = new sql.Request(db);
+
+        request.multiple = true
+
+        var query = '';
+
+        query = "SELECT * FROM "
+        // schema.forEach(function (item) {
+        //     if (item.formElement == 'Drop Down') {
+        //         var tempquery = "select [" + item.lookupTableText + "] as text, [" + item.lookupTableKey + "] as value,'" + item.lookupTable + "' as tableName from [" + item.lookupTable + "]"
+
+        //         query = query == '' ? tempquery : query + '; ' + tempquery;
+        //     }
+        // });
+
+        request.query(query, function (err, result) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+
+                return next(err);
             }
 
             var elements = [];
@@ -152,7 +249,7 @@ function getSQLType(dataType, length) {
         return sql.Decimal(length)
 }
 
-router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res) => {
+router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res, next) => {
     var error, msg = '';
 
     var tableName = req.body.applicationName;
@@ -170,6 +267,8 @@ router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res) =>
             console.log('error', err);
             
             sql.close();
+
+            return next(err);
         }
 
         var table = new sql.Table(tableName)
@@ -191,6 +290,8 @@ router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res) =>
                 db.close();
                 
                 console.log('bulk insert error', err);
+
+                return next(err);
             }
 
             request1 = new sql.Request(db);
@@ -205,15 +306,30 @@ router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res) =>
                 
                 if (err) {
                     console.log('bulk insert error', err);
+
+                    return next(err);
                 }
                 
                 res.header("Access-Control-Allow-Origin", "*");
                 
                 res.json({ message: 'SQL Server table created!', error: error });
-            })
+            });
         });
     });
 });
+
+app.use(function(err, req, res, next) {
+    res.status(err.status || 500);
+    
+    res.header("Access-Control-Allow-Origin", "*");
+    
+    res.send({
+        message: err.message,
+        error: {}
+    });
+});
+
+app.use(morgan('combined', {stream: accessLogStream}))
 
 app.use(bodyParser.json());
 
