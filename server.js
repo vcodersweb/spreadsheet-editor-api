@@ -51,11 +51,11 @@ function getSQLType(dataType, length) {
         return sql.Decimal(length)
 }
 
-var db = new sql.ConnectionPool(databaseConfig);
-
 router.route('/getMasterApplication').get((req, res) => {
     var error, msg = '';
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -87,6 +87,8 @@ router.route('/getMasterApplication').get((req, res) => {
 router.route('/getApplications').get((req, res) => {
     var error, msg = '';
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -117,6 +119,8 @@ router.route('/getApplications').get((req, res) => {
 router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) => {
     var error, msg = '';
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -151,6 +155,8 @@ router.route('/getColumnData').post(cors(corsOptionsDelegate), (req, res, next) 
 
     var schema = req.body;
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -208,6 +214,8 @@ router.route('/getColumnDataByTable/:tableName').get((req, res, next) => {
     var error, msg = '';
 
     var schema = req.body;
+    
+    var db = new sql.ConnectionPool(databaseConfig);
     
     db.connect(function (err) {
         if (err) {
@@ -283,6 +291,10 @@ router.route('/getColumnDataByTable/:tableName').get((req, res, next) => {
 router.route('/getTableData/:tableName').get((req, res, next) => {
     var error, msg = '';
     
+    var db = new sql.ConnectionPool(databaseConfig);
+    
+    if (db.connected) db.close;
+
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -294,7 +306,7 @@ router.route('/getTableData/:tableName').get((req, res, next) => {
 
         var request = new sql.Request(db);
 
-        var query = 'SELECCT * FROM ' + req.params.tableName;
+        var query = 'SELECT * FROM ' + req.params.tableName;
 
         request.query(query, function (err, data) {
             db.close();
@@ -340,6 +352,56 @@ router.route('/getTableDataByColumn/:tableName/:columnName/:columnvalue').get((r
             res.header("Access-Control-Allow-Origin", "*");
             
             res.send(recordset);
+        });
+    });
+});
+
+router.route('/executeQuery').post(cors(corsOptionsDelegate), (req, res, next) => {
+    var error, msg = '';
+
+    var db = new sql.ConnectionPool(databaseConfig);
+    
+    var query = req.body.query;
+    
+    var tableName = req.body.tableName;
+    
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+
+            db.close();
+
+            return next(err);
+        }
+        var request = new sql.Request(db);
+
+        request.query(query, function (err, result) {
+
+
+            if (err) {
+                db.close();
+                console.log(err);
+                return next(err);
+            }
+            else {
+                var newrequest = new sql.Request(db);
+
+                var query = 'SELECT * FROM ' + tableName;
+
+                newrequest.query(query, function (err, data) {
+                    db.close();
+
+                    if (err) {
+                        console.log(err);
+                        
+                        return next(err);
+                    }
+
+                    res.header("Access-Control-Allow-Origin", "*");
+                    
+                    res.send(data.recordset);
+                });
+            }
         });
     });
 });
@@ -465,12 +527,12 @@ app.use(function(err, req, res, next) {
     res.header("Access-Control-Allow-Origin", "*");
     
     res.send({
-        message: err.message,
+        message: res.json,
         error: {}
     });
 });
 
-app.use(morgan('combined', {stream: accessLogStream}))
+app.use(morgan('combined', { stream: accessLogStream }))
 
 app.use(bodyParser.json());
 

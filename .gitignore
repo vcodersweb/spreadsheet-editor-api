@@ -1,6 +1,9 @@
 # dependencies
 node_modules
 
+#log files
+log
+
 # production
 dist
 
