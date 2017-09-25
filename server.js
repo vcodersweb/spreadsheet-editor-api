@@ -306,7 +306,7 @@ router.route('/getTableData/:tableName').get((req, res, next) => {
 
         var request = new sql.Request(db);
 
-        var query = 'SELECT * FROM ' + req.params.tableName;
+        var query = 'SELECT * FROM [' + req.params.tableName + ']';
 
         request.query(query, function (err, data) {
             db.close();
@@ -327,6 +327,8 @@ router.route('/getTableData/:tableName').get((req, res, next) => {
 router.route('/getTableDataByColumn/:tableName/:columnName/:columnvalue').get((req, res, next) => {
     var error, msg = '';
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -338,7 +340,7 @@ router.route('/getTableDataByColumn/:tableName/:columnName/:columnvalue').get((r
 
         var request = new sql.Request(db);
 
-        var query = 'SELECT * FROM ' + req.params.tableName + ' Where ' + req.params.columnName + '=' + req.params.columnvalue;
+        var query = 'SELECT * FROM [' + req.params.tableName + '] Where ' + req.params.columnName + '=' + req.params.columnvalue;
         
         request.query(query, function (err, recordset) {
             db.close();
@@ -376,17 +378,17 @@ router.route('/executeQuery').post(cors(corsOptionsDelegate), (req, res, next) =
         var request = new sql.Request(db);
 
         request.query(query, function (err, result) {
-
-
             if (err) {
                 db.close();
+                
                 console.log(err);
+                
                 return next(err);
             }
             else {
                 var newrequest = new sql.Request(db);
 
-                var query = 'SELECT * FROM ' + tableName;
+                var query = 'SELECT * FROM [' + tableName + ']';
 
                 newrequest.query(query, function (err, data) {
                     db.close();
@@ -411,6 +413,8 @@ router.route('/getTableData').post(cors(corsOptionsDelegate), (req, res, next) =
 
     var schema = req.body;
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -465,6 +469,8 @@ router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res, ne
 
     var authorizationGroup = req.body.authorizationGroup;
 
+    var db = new sql.ConnectionPool(databaseConfig);
+    
     db.connect(function (err) {
         if (err) {
             console.log('error', err);
@@ -517,6 +523,56 @@ router.route('/createApplication').post(cors(corsOptionsDelegate), (req, res, ne
                 
                 res.json({ message: 'SQL Server table created!', error: error });
             });
+        });
+    });
+});
+
+router.route('/upload').post(cors(corsOptionsDelegate), (req, res, next) => {
+    var error, msg = '';
+
+    var tableName = req.body.applicationName;
+
+    var data = req.body.data;
+
+    var columns = req.body.columns;
+
+    var db = new sql.ConnectionPool(databaseConfig);
+    
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+            
+            sql.close();
+
+            return next(err);
+        }
+
+        var table = new sql.Table(tableName)
+        
+        table.create = false;
+    
+        columns.forEach(function (column) {
+            var isPrimary = column.isPrimary;
+            
+            table.columns.add(column.columnName, getSQLType(column.dataType, column.length), { nullable: true, primary: isPrimary })
+        });
+
+        table.rows = data;
+
+        var request = new sql.Request(db)
+
+        request.bulk(table, (err, result) => {
+            if (err) {
+                db.close();
+                
+                console.log('bulk insert error', err);
+
+                return next(err);
+            }
+
+            res.header("Access-Control-Allow-Origin", "*");
+                
+            res.json({ message: 'SQL Server table created!', error: error });
         });
     });
 });
