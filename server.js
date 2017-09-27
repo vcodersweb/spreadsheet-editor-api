@@ -51,7 +51,7 @@ function getSQLType(dataType, length) {
         return sql.Decimal(length)
 }
 
-router.route('/getMasterApplication').get((req, res) => {
+router.route('/getMasterApplication').get((req, res, next) => {
     var error, msg = '';
 
     var db = new sql.ConnectionPool(databaseConfig);
@@ -84,7 +84,7 @@ router.route('/getMasterApplication').get((req, res) => {
     });
 });
 
-router.route('/getApplications').get((req, res) => {
+router.route('/getApplications').get((req, res, next) => {
     var error, msg = '';
 
     var db = new sql.ConnectionPool(databaseConfig);
@@ -116,7 +116,7 @@ router.route('/getApplications').get((req, res) => {
     });
 });
 
-router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res) => {
+router.route('/getMasterData/:tableName/:keyColumn/:textColumn').get((req, res, next) => {
     var error, msg = '';
 
     var db = new sql.ConnectionPool(databaseConfig);
@@ -573,6 +573,85 @@ router.route('/upload').post(cors(corsOptionsDelegate), (req, res, next) => {
             res.header("Access-Control-Allow-Origin", "*");
                 
             res.json({ message: 'SQL Server table created!', error: error });
+        });
+    });
+});
+
+router.route('/audit').post(cors(corsOptionsDelegate), (req, res, next) => {
+    var error, msg = '';
+
+    var data = req.body.data;
+
+    var db = new sql.ConnectionPool(databaseConfig);
+    
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+            
+            sql.close();
+
+            return next(err);
+        }
+
+        var table = new sql.Table("AuditTrail")
+        
+        table.create = false;
+    
+        table.columns.add("ApplicationName", sql.VarChar(50), { nullable: false, primary: false });
+        table.columns.add("ColumnName", sql.VarChar(50), { nullable: false, primary: false });
+        table.columns.add("OldValue", sql.VarChar(100), { nullable: false, primary: false });
+        table.columns.add("NewValue", sql.VarChar(100), { nullable: false, primary: false });
+        table.columns.add("CreatedBy", sql.Int, { nullable: false, primary: false });
+        
+        table.rows = data;
+
+        var request = new sql.Request(db)
+
+        request.bulk(table, (err, result) => {
+            if (err) {
+                db.close();
+                
+                console.log('bulk insert error', err);
+
+                return next(err);
+            }
+
+            res.header("Access-Control-Allow-Origin", "*");
+                
+            res.json({ message: 'Audit details updated.', error: error });
+        });
+    });
+});
+
+router.route('/getAuditTrail/:appName').get((req, res) => {
+    var error, msg = '';
+
+    var db = new sql.ConnectionPool(databaseConfig);
+    
+    db.connect(function (err) {
+        if (err) {
+            console.log('error', err);
+
+            db.close();
+            
+            return next(err);
+        }
+
+        var request = new sql.Request(db)
+                            .input('applicationName', sql.Char, req.params.appName);
+    
+        request.query('SELECT * FROM AuditTrail WHERE ApplicationName = @applicationName ORDER BY CreatedOn DESC', function (err, recordset) {
+            db.close();
+
+            if (err) {
+                console.log(err);
+                
+                return next(err);
+            }
+
+            res.header("Access-Control-Allow-Origin", "*");
+            
+            res.send(recordset);
         });
     });
 });
